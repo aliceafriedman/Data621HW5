@@ -267,9 +267,14 @@ ggplot(data.frame(AcidIndex = transformed_AcidIndex), aes(x = AcidIndex)) +
 
 
 ```{r}
-trainIndex <-  sample(1:nrow(imputed_df), round(0.7*nrow(imputed_df)), replace = FALSE) 
-trainData <- imputed_df[trainIndex, ]
-testData <- imputed_df[-trainIndex , ] 
+trainIndex_imputed <-  sample(1:nrow(imputed_df), round(0.7*nrow(imputed_df)), replace = FALSE) 
+trainData_imputed <- imputed_df[trainIndex, ]
+testData_imputed <- imputed_df[-trainIndex , ] 
+
+trainIndex <-  sample(1:nrow(train_df), round(0.7*nrow(train_df)), replace = FALSE) 
+trainData <- train_df[trainIndex, ]
+testData <- train_df[-trainIndex , ] 
+
 ```
 ## Model Building
 
@@ -342,6 +347,7 @@ cor(predict_M1, testData$TARGET)
 ##Conclusions
 Using our selected model, here are the predicted values. Based on the plots, the model does seem to fit the required assumptions for a linear regression.
 ```{r}
+model_final <- M3
 predicted <- predict(model_final, test_df)
 plot(predicted, test_df$STARS)
 plot(predicted, test_df$LabelAppeal)
