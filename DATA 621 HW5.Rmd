@@ -59,8 +59,7 @@ head(train_df)
 ```
 
 ### Overal Statistics
-This dataset has an ordinal target, with discrete values from 0 to 8. There are a number of normally distributed numeric variables, all tightly cetnered around the mean, as well as three ordinal variables (**STARS** and **AcidIndex** and **LabelAppeal**). 
-
+This dataset **TARGET** has discrete values from 0 to 8, representing cases of wine. There are a number of normally distributed numeric variables, all tightly centered around their means, as well as three ordinal variables (**STARS** and **AcidIndex** and **LabelAppeal**), which rank different wine characteristics on a scale with discrete values. 
 
 ```{r}
 
@@ -83,7 +82,7 @@ train_df$LabelAppeal <- as.numeric(train_df$LabelAppeal)
 ### Correlation
 A number of variables reference acidity which would presumably be closely correlated with **pH**. A plot and correlation, however oddly, indicates that not to be the case.
 
-Instead, the variables with high correlation are **STARS** and **TARGET** (0.56). There is some correlation between and **LabelAppeal** and **STARS** (0.33) and **LabelAppeak** and **TARGET** (0.36), as well asa moderate negative correation between **AcidIndex** and **Target** (-0.24). Other variables are largely uncorrelated.
+Instead, the variables with high correlation are **STARS** and **TARGET** (0.56). There is some correlation between and **LabelAppeal** and **STARS** (0.33) and **LabelAppeak** and **TARGET** (0.36), as well as a moderate negative correation between **AcidIndex** and **Target** (-0.24). Other variables are largely uncorrelated. This suggests that higher STARS ratings and label appeal may be associated with higher Target sales, while.
 
 The correlation between features and TARGET indicates that these are likely to have some predictive value; the correlation between **LabelAppeal** and **STARS** means that use of both features in the model can lead to some prediction errors or some difficulty separating the effetcs of each feature; however, the correlation is not strong enough to warrant exclusion of either feature from the analysis. 
 
@@ -100,17 +99,6 @@ cor(train_df$STARS, train_df$LabelAppeal, use = "pairwise.complete.obs")
 cor(train_df$TARGET, train_df$AcidIndex, use = "pairwise.complete.obs")
 ```
 
-The relationship between STARS and Target appears to be positive, suggesting that higher STARS ratings may be associated with higher Target sales.
-```{r}
-corr_matrix <- cor(train_df[c("STARS", "TARGET", "LabelAppeal")], use = "complete.obs")
-print(corr_matrix)
-
-# print result
-print(corr_matrix["TARGET", "STARS"])
-print(corr_matrix["TARGET", "LabelAppeal"])
-```
-
-
 In regression analysis, we typically use a p-value threshold of 0.05 to determine statistical significance. Therefore, independent variables with a p-value less than 0.05 can be considered statistically significant and are likely to have a significant impact on predicting wine quality. In this model, the variables **VolatileAcidity**, **FreeSulfurDioxide**, **LabelAppeal**, and **AcidIndex** all meet this criterion and can be considered relevant in predicting wine quality.
 
 
@@ -122,15 +110,16 @@ summary(lm_model)
 
 ### Missing Values
 
-Search for any missing values. Since the column STARS is an important values, it will be filled in in the data preparation step.
-
+Roughly half of the rows have at least some missing values (6359/12795 rows) -- omitting rows with NAs may not be a viable strategy.
+We can test both imputing and omitting using cross-validation to see which approach gives superior results. Given that **STARS** is correlated with **LabelAppeal** (which has no missng values), it may be possible to add value to the model by imputing values for **STARS** based on **LabelAppeak**.
 ```{r}
 colSums(is.na(train_df))
+sum(!complete.cases(train_df))
 ```
 
 ### Bar Plot
 
-Bar Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET.
+Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET. We use a "jittered" scatter plot in addtion to transparent points in order to understand the spread of the data: Relative few wines achieve a 4-star rating, and all that do achieve at least some order. 2-star wines
 
 ```{r}
 TARGET_STARS_df <- train_df %>% 
@@ -144,7 +133,7 @@ TARGET_STARS_df
 ```{r}
 
 ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
-  geom_bar(data = TARGET_STARS_df, stat = "identity", alpha = .3) + 
+  geom_point(alpha = .1, position = "jitter") + 
     #ggrepel::geom_text_repel(aes(label = STARS), color = "black", size = 2.5, segment.color = "grey") +
       #geom_point() +
         guides(color = "none", fill = "none") +
@@ -158,18 +147,24 @@ ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
 
 ### Basic Plots
 
-Everything looks pretty close to a normal distribution. Also, LabelAppeal, AcidIndex, and STARS are actually categorical variables.
+A basic plot of all features shows that they are close to a normal distribution, although the **TARGET** is actually bimodal wiht a mode at 4 and at 0 cases of wine sold. 
 
-```{r}
-datasub <- reshape2::melt(train_df)
-ggplot2::ggplot(datasub) +
+```{r, warning=FALSE}
+df_long <- reshape2::melt(train_df)
+ggplot2::ggplot(df_long) +
   ggplot2::aes(x = value) + 
   ggplot2::geom_density(fill = "skyblue") + 
   ggplot2::facet_wrap(~variable, scales = 'free')
 
 ```
+We can confirm by looking at a QQ plot.
 
-
+```{r, warning=FALSE}
+ggplot(df_long, aes(sample = value)) + 
+  stat_qq() +
+  facet_wrap(~variable)
+  ggtitle("QQ Plot of Data")
+```
 
 ```{r}
 # Basic Plots
