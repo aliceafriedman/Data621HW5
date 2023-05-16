@@ -1,0 +1,340 @@
+---
+title: DATA621 HW 5
+author: Group 5
+output:  
+  html_document:
+    toc: true
+    toc_float: true
+    show_toggle: true
+  pdf_document:
+  includes:
+  in_header: header.html
+css: ./lab.css
+highlight: pygments
+theme: cerulean
+toc: true
+toc_float: true
+linkcolor: blue
+date: "2023-3-12"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(tidyr)
+#library(MASS)
+#library(car)
+#library(psych)
+#library(ggplot2)
+#library(hrbrthemes)
+#library(viridis)
+#library(corrplot)
+#library(FactoMineR)
+#library(VIFCP)
+#library(knitr)
+#library(kableExtra)
+#library(Hmisc)
+#library(pROC)
+#library(binr)
+#library(mice)
+#library(UpSetR)
+options(warn=-1)
+```
+
+Overview
+In this homework assignment, you will explore, analyze and model a data set containing information on
+approximately 12,000 commercially available wines. The variables are mostly related to the chemical properties of
+the wine being sold. The response variable is the number of sample cases of wine that were purchased by wine
+distribution companies after sampling a wine. These cases would be used to provide tasting samples to
+restaurants and wine stores around the United States. The more sample cases purchased, the more likely is a
+wine to be sold at a high end restaurant. A large wine manufacturer is studying the data in order to predict the
+number of wine cases ordered based upon the wine characteristics. If the wine manufacturer can predict the
+number of cases, then that manufacturer will be able to adjust their wine offering to maximize sales.
+
+## 1. Data Exploration
+
+```{r}
+train_df <- read.csv("data/wine-training-data.csv") %>% dplyr::select(-INDEX)
+test_df <- read.csv("data/wine-evaluation-data.csv")
+head(train_df)
+```
+
+### Overal Statistics
+This dataset **TARGET** has discrete values from 0 to 8, representing cases of wine. There are a number of normally distributed numeric variables, all tightly centered around their means, as well as three ordinal variables (**STARS** and **AcidIndex** and **LabelAppeal**), which rank different wine characteristics on a scale with discrete values. 
+
+```{r}
+
+describe(train_df)
+```
+
+Data type for all columns of a **train_df**.
+```{r}
+str(train_df)
+```
+
+Change int data type to numeric data type for future analysis.
+
+```{r}
+train_df$STARS <- as.numeric(train_df$STARS)
+train_df$AcidIndex <- as.numeric(train_df$AcidIndex)
+train_df$LabelAppeal <- as.numeric(train_df$LabelAppeal)
+```
+
+### Correlation
+A number of variables reference acidity which would presumably be closely correlated with **pH**. A plot and correlation, however oddly, indicates that not to be the case.
+
+Instead, the variables with high correlation are **STARS** and **TARGET** (0.56). There is some correlation between and **LabelAppeal** and **STARS** (0.33) and **LabelAppeak** and **TARGET** (0.36), as well as a moderate negative correation between **AcidIndex** and **Target** (-0.24). Other variables are largely uncorrelated. This suggests that higher STARS ratings and label appeal may be associated with higher Target sales, while.
+
+The correlation between features and TARGET indicates that these are likely to have some predictive value; the correlation between **LabelAppeal** and **STARS** means that use of both features in the model can lead to some prediction errors or some difficulty separating the effetcs of each feature; however, the correlation is not strong enough to warrant exclusion of either feature from the analysis. 
+
+```{r}
+cor_matrix <- cor(train_df, use = "pairwise.complete.obs")
+
+# Create the correlation plot
+corrplot(cor_matrix, method = "circle", type = "upper", tl.cex = 0.8, tl.col = "black")
+```
+```{r, include=FALSE}
+cor(train_df$TARGET, train_df$STARS, use = "pairwise.complete.obs")
+cor(train_df$TARGET, train_df$LabelAppeal, use = "pairwise.complete.obs")
+cor(train_df$STARS, train_df$LabelAppeal, use = "pairwise.complete.obs")
+cor(train_df$TARGET, train_df$AcidIndex, use = "pairwise.complete.obs")
+```
+
+In regression analysis, we typically use a p-value threshold of 0.05 to determine statistical significance. Therefore, independent variables with a p-value less than 0.05 can be considered statistically significant and are likely to have a significant impact on predicting wine quality. In this model, the variables **VolatileAcidity**, **FreeSulfurDioxide**, **LabelAppeal**, and **AcidIndex** all meet this criterion and can be considered relevant in predicting wine quality.
+
+
+```{r}
+lm_model <- lm(STARS ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + Chlorides + ResidualSugar + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + pH + Sulphates + Alcohol + LabelAppeal + AcidIndex, data = train_df)
+
+summary(lm_model)
+```
+
+### Missing Values
+
+Roughly half of the rows have at least some missing values (6359/12795 rows) -- omitting rows with NAs may not be a viable strategy.
+We can test both imputing and omitting using cross-validation to see which approach gives superior results. Given that **STARS** is correlated with **LabelAppeal** (which has no missng values), it may be possible to add value to the model by imputing values for **STARS** based on **LabelAppeak**.
+```{r, include=FALSE}
+colSums(is.na(train_df))
+sum(!complete.cases(train_df))
+```
+
+### Plot
+
+Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET. We use a "jittered" scatter plot in addtion to transparent points in order to understand the spread of the data: Relative few wines achieve a 4-star rating, and all that do achieve at least some orders. 
+
+```{r}
+TARGET_STARS_df <- train_df %>% 
+  filter(!is.na(STARS)) %>%
+        group_by(STARS) %>% 
+        summarise(TARGET = mean(TARGET))
+TARGET_STARS_df
+
+```
+
+```{r}
+
+ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
+  geom_point(alpha = .1, position = "jitter") + 
+    #ggrepel::geom_text_repel(aes(label = STARS), color = "black", size = 2.5, segment.color = "grey") +
+      #geom_point() +
+        guides(color = "none", fill = "none") +
+        theme_bw() +
+        labs(
+          title = "STARS & TARGET",
+          x = "STARS",
+          y = "TARGET"
+        )
+```
+
+### Basic Plots
+
+A basic plot of all features shows that they are close to a normal distribution, although the **TARGET** is actually bimodal wiht a mode at 4 and at 0 cases of wine sold. 
+
+```{r, warning=FALSE}
+df_long <- reshape2::melt(train_df)
+ggplot2::ggplot(df_long) +
+  ggplot2::aes(x = value) + 
+  ggplot2::geom_density(fill = "skyblue") + 
+  ggplot2::facet_wrap(~variable, scales = 'free')
+
+```
+We can confirm by looking at a QQ plot.
+
+```{r, warning=FALSE}
+ggplot(df_long, aes(sample = value)) + 
+  stat_qq() +
+  facet_wrap(~variable)
+  ggtitle("QQ Plot of Data")
+```
+
+```{r}
+ggplot(df_long, aes(sample = value)) + 
+  geom_histogram() +
+  facet_wrap(~variable)
+  ggtitle("Histogram of Data")
+```
+
+
+```{r}
+#Well, since we have almost 13,000 observations, we have decided that we can simply remove the NAs from the data set. Except for the STARS variable. Since it takes factors, we will simply turn NA into a factor.
+
+#NA handling
+#train_df$STARS <- addNA(train_df$STARS)
+#train_df <- na.omit(train_df)
+#test_df$STARS <- addNA(test_df$STARS)
+```
+
+## 2. DATA PREPARATION
+
+### Missing Value
+
+Since STARS and TARGET have a moderate positive correlation, build the linear regression model to predict missing value for STARS. It should be noted that there are many missing values in the STARS column, which may limit the accuracy of any conclusions drawn from the analysis.
+
+**TARGET** and **LabelAppeal** variables have a strong influence on the response variable.
+
+```{r}
+missing_STARS <- subset(train_df, is.na(STARS))
+
+lm_model_STARS <- lm(STARS ~ TARGET + LabelAppeal, data = train_df)
+
+predicted_STARS <- predict(lm_model_STARS, newdata = missing_STARS)
+
+predicted_STARS_rounded <- round(predicted_STARS)
+
+imputed_df <- train_df
+
+imputed_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
+
+summary(lm_model_STARS)
+
+```
+
+### Data Types
+
+Change the datatypes of a few variables. Convert specific columns to factors in separate data frames without altering the original data frames,
+
+```{r}
+str(train_df)
+```
+
+```{r}
+train_df_factors <- train_df
+train_df_factors$LabelAppeal <- as.factor(train_df_factors$LabelAppeal)
+train_df_factors$AcidIndex <- as.factor(train_df_factors$AcidIndex)
+train_df_factors$STARS <- as.factor(train_df_factors$STARS)
+
+test_df_factors <- test_df
+test_df_factors$LabelAppeal <- as.factor(test_df_factors$LabelAppeal)
+test_df_factors$AcidIndex <- as.factor(test_df_factors$AcidIndex)
+test_df_factors$STARS <- as.factor(test_df_factors$STARS)
+```
+
+
+### Box Cox
+
+Column AcidIndex is not normally distributed. Therefore secure normality through the Box-Cox Transformation.
+
+```{r}
+ggplot(train_df, aes(x = AcidIndex)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(title = "Histogram of AcidIndex", x = "AcidIndex", y = "Frequency")
+
+```
+
+```{r}
+# Perform Box-Cox transformation
+bc_result <- boxCox(train_df$AcidIndex ~ 1, data = train_df)
+
+# Extract lambda value
+lambda <- bc_result$x[which.max(bc_result$y)]
+
+# Apply Box-Cox transformation using the lambda value
+transformed_AcidIndex <- if (lambda != 0) {
+  (train_df$AcidIndex^lambda - 1) / lambda
+} else {
+  log(train_df$AcidIndex)
+}
+
+# Generate Q-Q plot
+qqnorm(transformed_AcidIndex)
+qqline(transformed_AcidIndex)
+
+# Create a histogram of the transformed AcidIndex
+ggplot(data.frame(AcidIndex = transformed_AcidIndex), aes(x = AcidIndex)) +
+  geom_histogram(fill = "skyblue", color = "black") +
+  labs(title = "Histogram of Transformed AcidIndex", x = "Transformed AcidIndex", y = "Frequency")
+
+```
+
+
+```{r}
+trainIndex <-  sample(1:nrow(imputed_df), round(0.7*nrow(imputed_df)), replace = FALSE) 
+trainData <- imputed_df[trainIndex, ]
+testData <- imputed_df[-trainIndex , ] 
+```
+## Model Building
+
+### Model type
+What kind of function is best suited for building this model? Because the data set appears to meet the requirements of a linear regression (normally distributed variables, linear relaitonship), we will first attempt to create a linear model. One way to identify the best combination of features is to use subsetting, which can be implemented in R from the 'leaps' package.
+
+Running a subset tests all possible combinations of features in the dataset, and gives back the best possible combination of features (by R^2) for each number of features. In the output below, from bottom to top are models M1 to M14 representing the best output for each number of variables. In each row, an asterisk ("*") below any column means that feature is included in the best model of that size. 
+
+For example, according to the subset process, the best three-variable model contains **LabelAppeal**, **AcidIndex**, and **Stars**. 
+
+```{r subset}
+#reference: http://www.science.smith.edu/~jcrouser/SDS293/labs/lab8-r.html
+
+##note that this is using the imputed data.
+library(leaps)
+regfit_full = leaps::regsubsets(TARGET ~ ., train_df, nvmax = length(train_df)-1)
+summary(regfit_full)
+```
+
+We can then plot the number of features by various measure (R^2, adj. R^2, BIC to determine the best model to select.
+
+```{r}
+#reference: http://www.science.smith.edu/~jcrouser/SDS293/labs/lab8-r.html
+num_features <- c(1:14)
+sum_fit <<- summary(regfit_full)
+```
+```{r}
+plot(num_features, sum_fit$rsq, 
+     xlab="Num Features in Model",
+     ylab="R Squared")
+```
+```{r}
+#plot BIC vs number of features
+hbic <- mean(sum_fit$bic) + sd(sum_fit$bic)
+plot(num_features, summary(regfit_full)$bic, 
+     xlab="Num Features in Model",
+     ylab="BIC")
+abline(h = hbic , col = "darkgreen")
+abline(h = mean(sum_fit$bic) , col = "darkblue")
+text(x=2, y=hbic, '1 SD above mean')
+```
+```{r}
+plot(num_features, summary(regfit_full)$adjr2, 
+     xlab="Num Features in Model",
+     ylab="Adjusted R^2")
+abline(h = mean(sum_fit$adjr2) - sd(sum_fit$adjr2) , col = "darkgreen")
+
+```
+R^2 increases sharply as the number of features is increased from 1 to 4, and then mostly levels off; however, this statistic alone can be misleading  and lead to overfit; R^2 is not appropriate to judge between models with difference number of features. Instead, we should look at adjusted R^2, BIC, or Cp -- all of which impose a penalty of different sizes for including additional features.
+
+### Model selection
+
+One rule of thumb is to choose the model with the fewest features where the BIC (or other selected metric) is within one SD of the mean. By this measure, the model with only 1 feature, **STARS** is the best one, while if we use adjusted R^2, which penalizes additional features less, the model wiht 3 features (**LableAppeal**, **AcidIndex**, and **STARS**) performs the best. In order to make a final choice, we should see which model performst the best in cross-validaiton.
+
+```{r}
+model_final <- lm(TARGET ~ LabelAppeal + AcidIndex + STARS, trainData)
+plot(model_final)
+```
+##Conclusions
+Using our selected model, here are the predicted values. Based on the plots, the model does seem to fit the required assumptions for a linear regression.
+```{r}
+predicted <- predict(model_final, test_df)
+plot(predicted, test_df$STARS)
+plot(predicted, test_df$LabelAppeal)
+plot(predicted, test_df$AcidIndex)
+plot(model_final)
+```
+
