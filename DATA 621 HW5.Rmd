@@ -53,7 +53,7 @@ number of cases, then that manufacturer will be able to adjust their wine offeri
 ## 1. Data Exploration
 
 ```{r}
-train_df <- read.csv("data/wine-training-data.csv") %>% select(-INDEX)
+train_df <- read.csv("data/wine-training-data.csv") %>% dplyr::select(-INDEX)
 test_df <- read.csv("data/wine-evaluation-data.csv")
 head(train_df)
 ```
