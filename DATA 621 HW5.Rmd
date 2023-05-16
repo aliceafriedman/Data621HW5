@@ -59,7 +59,11 @@ head(train_df)
 ```
 
 ### Overal Statistics
+This dataset has an ordinal target, with discrete values from 0 to 8. There are a number of normally distributed numeric variables, all tightly cetnered around the mean, as well as three ordinal variables (**STARS** and **AcidIndex** and **LabelAppeal**). 
+
+
 ```{r}
+
 describe(train_df)
 ```
 
@@ -77,12 +81,23 @@ train_df$LabelAppeal <- as.numeric(train_df$LabelAppeal)
 ```
 
 ### Correlation
+A number of variables reference acidity which would presumably be closely correlated with **pH**. A plot and correlation, however oddly, indicates that not to be the case.
+
+Instead, the variables with high correlation are **STARS** and **TARGET** (0.56). There is some correlation between and **LabelAppeal** and **STARS** (0.33) and **LabelAppeak** and **TARGET** (0.36), as well asa moderate negative correation between **AcidIndex** and **Target** (-0.24). Other variables are largely uncorrelated.
+
+The correlation between features and TARGET indicates that these are likely to have some predictive value; the correlation between **LabelAppeal** and **STARS** means that use of both features in the model can lead to some prediction errors or some difficulty separating the effetcs of each feature; however, the correlation is not strong enough to warrant exclusion of either feature from the analysis. 
 
 ```{r}
-cor_matrix <- cor(na.omit(train_df))
+cor_matrix <- cor(train_df, use = "pairwise.complete.obs")
 
 # Create the correlation plot
 corrplot(cor_matrix, method = "circle", type = "upper", tl.cex = 0.8, tl.col = "black")
+```
+```{r, include=FALSE}
+cor(train_df$TARGET, train_df$STARS, use = "pairwise.complete.obs")
+cor(train_df$TARGET, train_df$LabelAppeal, use = "pairwise.complete.obs")
+cor(train_df$STARS, train_df$LabelAppeal, use = "pairwise.complete.obs")
+cor(train_df$TARGET, train_df$AcidIndex, use = "pairwise.complete.obs")
 ```
 
 The relationship between STARS and Target appears to be positive, suggesting that higher STARS ratings may be associated with higher Target sales.
