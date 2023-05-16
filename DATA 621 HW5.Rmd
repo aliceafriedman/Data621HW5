@@ -117,7 +117,7 @@ colSums(is.na(train_df))
 sum(!complete.cases(train_df))
 ```
 
-### Bar Plot
+### Plot
 
 Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET. We use a "jittered" scatter plot in addtion to transparent points in order to understand the spread of the data: Relative few wines achieve a 4-star rating, and all that do achieve at least some order. 2-star wines
 
@@ -167,10 +167,10 @@ ggplot(df_long, aes(sample = value)) +
 ```
 
 ```{r}
-# Basic Plots
-# Looking at the histogram for each variable
-# Margin is too large to knit on PDF
-#hist.data.frame(train_df)
+ggplot(df_long, aes(sample = value)) + 
+  geom_histogram() +
+  facet_wrap(~variable)
+  ggtitle("Histogram of Data")
 ```
 
 
@@ -200,11 +200,12 @@ predicted_STARS <- predict(lm_model_STARS, newdata = missing_STARS)
 
 predicted_STARS_rounded <- round(predicted_STARS)
 
-train_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
+imputed_df <- train_df
+
+imputed_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
 
 summary(lm_model_STARS)
 
-head(train_df)
 ```
 
 ### Data Types
