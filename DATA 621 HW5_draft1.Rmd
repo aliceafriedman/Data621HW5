@@ -1,0 +1,323 @@
+---
+title: DATA621 HW 5
+author: Group 5
+output:  
+  pdf_document:
+  html_document:
+    toc: true
+    toc_float: true
+    show_toggle: true
+  includes:
+  in_header: header.html
+css: ./lab.css
+highlight: pygments
+theme: cerulean
+toc: true
+toc_float: true
+linkcolor: blue
+date: "2023-05-14"
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(psych)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+library(corrplot)
+library(FactoMineR)
+library(VIFCP)
+library(knitr)
+library(kableExtra)
+library(Hmisc)
+library(pROC)
+library(binr)
+library(mice)
+library(UpSetR)
+options(warn=-1)
+```
+
+Overview
+In this homework assignment, you will explore, analyze and model a data set containing information on
+approximately 12,000 commercially available wines. The variables are mostly related to the chemical properties of
+the wine being sold. The response variable is the number of sample cases of wine that were purchased by wine
+distribution companies after sampling a wine. These cases would be used to provide tasting samples to
+restaurants and wine stores around the United States. The more sample cases purchased, the more likely is a
+wine to be sold at a high end restaurant. A large wine manufacturer is studying the data in order to predict the
+number of wine cases ordered based upon the wine characteristics. If the wine manufacturer can predict the
+number of cases, then that manufacturer will be able to adjust their wine offering to maximize sales.
+
+## 1. Data Exploration
+
+```{r}
+train_df <- read.csv("data/wine-training-data.csv") %>% select(-INDEX)
+test_df <- read.csv("data/wine-evaluation-data.csv")
+head(train_df)
+```
+
+### Overal Statistics.
+```{r}
+describe(train_df)
+```
+
+Data type for all columns of a **train_df**.
+```{r}
+str(train_df)
+```
+
+Change int data type to numeric data type for future analysis.
+
+```{r}
+train_df$STARS <- as.numeric(train_df$STARS)
+train_df$AcidIndex <- as.numeric(train_df$AcidIndex)
+train_df$LabelAppeal <- as.numeric(train_df$LabelAppeal)
+```
+
+### Correlation
+
+The relationship between STARS and Target appears to be positive, suggesting that higher STARS ratings may be associated with higher Target sales.
+```{r}
+plot(train_df[c("TARGET", "STARS")])
+cor(train_df$STARS, train_df$TARGET, use = "complete.obs")
+```
+
+
+In regression analysis, we typically use a p-value threshold of 0.05 to determine statistical significance. Therefore, independent variables with a p-value less than 0.05 can be considered statistically significant and are likely to have a significant impact on predicting wine quality. In this model, the variables **VolatileAcidity**, **FreeSulfurDioxide**, **LabelAppeal**, and **AcidIndex** all meet this criterion and can be considered relevant in predicting wine quality.
+
+
+```{r}
+lm_model <- lm(STARS ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + Chlorides + ResidualSugar + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + pH + Sulphates + Alcohol + LabelAppeal + AcidIndex, data = train_df)
+
+summary(lm_model)
+```
+
+### Missing Values
+
+Since STARS and TARGET have a moderate positive correlation, build the linear regression model to predict missing value for STARS. It should be noted that there are many missing values in the STARS column, which may limit the accuracy of any conclusions drawn from the analysis.
+
+```{r}
+missing_STARS <- subset(train_df, is.na(STARS))
+
+lm_model_STARS <- lm(STARS ~ VolatileAcidity + FreeSulfurDioxide + LabelAppeal + AcidIndex, data = train_df)
+
+predicted_STARS <- predict(lm_model_STARS, newdata = missing_STARS)
+
+predicted_STARS_rounded <- round(predicted_STARS)
+
+train_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
+
+
+head(train_df)
+
+summary(lm_model_STARS)
+```
+
+### Bar Plot of STARS and TARGET
+
+As you can see, the higher the STARS, the higher the average TARGET.
+
+```{r}
+TARGET_STARS_df <- train_df %>% 
+  filter(!is.na(STARS)) %>%
+        group_by(STARS) %>% 
+        summarise(TARGET = mean(TARGET))
+TARGET_STARS_df
+
+```
+
+```{r}
+ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
+  geom_bar(data = TARGET_STARS_df, stat = "identity", alpha = .3) + 
+    #ggrepel::geom_text_repel(aes(label = STARS), color = "black", size = 2.5, segment.color = "grey") +
+      #geom_point() +
+        guides(color = "none", fill = "none") +
+        theme_bw() +
+        labs(
+          title = "STARS & TARGET",
+          x = "STARS",
+          y = "TARGET"
+        )
+```
+
+### Basic Plots
+```{r}
+train_df_long <- reshape2::melt(train_df)
+ggplot2::ggplot(train_df_long) +
+  ggplot2::aes(x = value) + 
+  ggplot2::geom_density(fill = "skyblue") + 
+  ggplot2::facet_wrap(~variable, scales = 'free')
+
+```
+
+Basic Plots
+Looking at the Q-Q plots for each numeric variable
+
+```{r}
+ggplot(train_df_long, aes(sample = value)) + 
+  stat_qq() +
+  facet_wrap(~variable)
+  ggtitle("QQ Plot of Data")
+```
+
+All of the numeric features have a roughly normal distribution, if a quite tight distribution about the mean.
+
+Target, LabelAppeal, AcidIndex, and STARS are all categorical variables.
+
+NAs
+Next we want to count the number of NAs.
+```{r}
+colSums(is.na(train_df))
+```
+
+Well, since we have almost 13,000 observations, we have decided that we can simply remove the NAs from the data set. Except for the STARS variable. Since it takes factors, we will simply turn NA into a factor.
+
+# Data Tidying
+
+## Data Types
+We need to change the datatypes of a few variables.
+
+```{r}
+train_df$LabelAppeal <- as.factor(train_df$LabelAppeal)
+train_df$AcidIndex <- as.factor(train_df$AcidIndex)
+train_df$STARS <- as.factor(train_df$STARS)
+test_df$LabelAppeal <- as.factor(test_df$LabelAppeal)
+test_df$AcidIndex <- as.factor(test_df$AcidIndex)
+test_df$STARS <- as.factor(test_df$STARS)
+```
+
+## NA handling
+```{r}
+#train_df$STARS <- addNA(train_df$STARS)
+#train_df <- na.omit(train_df)
+#test_df$STARS <- addNA(test_df$STARS)
+```
+
+### 3. Building Models
+We will build a poisson model, and a negative binomial regression model.
+
+Splitting the training data.
+
+```{r}
+set.seed(123)
+partition <- sample(1:nrow(train_df), size=nrow(train_df)*0.7,replace=FALSE)
+
+train.data <-train_df[partition, ]
+test.data <- train_df[-partition, ]
+
+target <- test.data$`TARGET`
+```
+
+```{r}
+colnames(test.data) <- c("index", "TARGET", "FixedAcidity", "VolatileAcidity", "CitricAcid", "ResidualSugar", "Chlorides", "FreeSulfurDioxide", "TotalSulfurDioxide", "Density", "pH", "Sulphates", "Alcohol", "LabelAppeal", "AcidIndex", "STARS")
+colnames(train.data) <- c("index", "TARGET", "FixedAcidity", "VolatileAcidity", "CitricAcid", "ResidualSugar", "Chlorides", "FreeSulfurDioxide", "TotalSulfurDioxide", "Density", "pH", "Sulphates", "Alcohol", "LabelAppeal", "AcidIndex", "STARS")
+```
+
+Poisson W/ All Variables
+
+```{r}
+model1.a <- glm(TARGET ~., data=train.data, family = poisson)
+summary(model1.a)
+```
+Poisson W/ only the Significant Variables
+```{r}
+model1.b<- glm(TARGET ~ VolatileAcidity + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS ,data=train.data, family = poisson)
+summary(model1.b)
+```
+Negative Binomial Regression W/ All Variables
+```{r}
+model2.a <- glm(TARGET ~., data=train.data)
+summary(model2.a)
+```
+
+Negative Binomial Regression W/ Only Significant Variables
+
+```{r}
+model2.b <- glm(TARGET~ VolatileAcidity + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS , data=train.data)
+summary(model2.b)
+```
+
+### 4, Model Selection
+We will compare the models by they’re accuracy scores.
+
+Model 1.A
+
+```{r}
+predictions <- as.data.frame(predict(model1.a, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model1.a, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model1.a, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+```{r}
+print(avg_percentage_error)
+```
+Model 1.B
+```{r}
+predictions <- as.data.frame(predict(model1.b, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model1.b, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model1.b, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+```{r}
+print(avg_percentage_error)
+```
+Model 2.A
+```{r}
+predictions <- as.data.frame(predict(model2.a, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model2.a, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model2.a, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+
+```{r}
+print(avg_percentage_error)
+```
+Model 2.B
+```{r}
+predictions <- as.data.frame(predict(model2.b, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model2.b, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model2.b, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+```{r}
+print(avg_percentage_error)
+```
+The NaNs are due to the fact that some of the wines simply didn’t sell a case. So that would make a 0 in the denomenator. Thus, it won’t work. We can still check the average rate however.
+
+Our best model was model1.b with an average error rate of 2.500699
+
+Predictions
+
+```{r}
+predictions <- as.data.frame(predict(model1.b, newdata = test_df))
+test_df$predictions <- predictions
+results <- test_df[c("IN", "predictions")]
+```
+
+
+
+
