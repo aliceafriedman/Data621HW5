@@ -1,6 +1,6 @@
 ---
 title: DATA621 HW 5
-author: Group 5
+author: IvanTikhonov, Seung Min Song, Alice Friedman
 output:  
   html_document:
     toc: true
@@ -25,6 +25,7 @@ library(MASS)
 library(car)
 library(psych)
 library(ggplot2)
+library(gridExtra) 
 library(hrbrthemes)
 library(viridis)
 library(corrplot)
@@ -37,6 +38,9 @@ library(pROC)
 library(binr)
 library(mice)
 library(UpSetR)
+library(randomForest)
+library(class)
+library(Metrics)
 options(warn=-1)
 ```
 
@@ -53,16 +57,21 @@ number of cases, then that manufacturer will be able to adjust their wine offeri
 ## 1. Data Exploration
 
 ```{r}
-train_df <- read.csv("data/wine-training-data.csv") %>% dplyr::select(-INDEX)
-test_df <- read.csv("data/wine-evaluation-data.csv")
+train_df <- read.csv("C:/Users/SeungminSong/Downloads/621R/wine-training-data.csv")
+test_df <- read.csv("C:/Users/SeungminSong/Downloads/621R/wine-evaluation-data.csv")
 head(train_df)
 ```
 
 ### Overal Statistics
-This dataset **TARGET** has discrete values from 0 to 8, representing cases of wine. There are a number of normally distributed numeric variables, all tightly centered around their means, as well as three ordinal variables (**STARS** and **AcidIndex** and **LabelAppeal**), which rank different wine characteristics on a scale with discrete values. 
 
+When examining the distinctive variables in the train_df dataframe, a few noteworthy ones stand out:
+
+* ResidualSugar: This variable denotes the quantity of residual sugar present. Its range is significantly broader than that of other variables when comparing the minimum and maximum values. The value of ResidualSugar can greatly influence the level of sweetness in a beverage.
+
+* AcidIndex: As a crucial factor in describing wine characteristics, AcidIndex represents the acidity index. Unlike other variables, it takes on discrete values and encompasses 14 unique values ranging from 4 to 17. Its categorical nature sets it apart from the rest.
+
+* STARS: This variable assigns a score that indicates the rating of a wine. Ranging from 1 to 4, it possesses relatively fewer distinct values compared to other variables in the dataset.
 ```{r}
-
 describe(train_df)
 ```
 
@@ -80,46 +89,72 @@ train_df$LabelAppeal <- as.numeric(train_df$LabelAppeal)
 ```
 
 ### Correlation
-A number of variables reference acidity which would presumably be closely correlated with **pH**. A plot and correlation, however oddly, indicates that not to be the case.
-
-Instead, the variables with high correlation are **STARS** and **TARGET** (0.56). There is some correlation between and **LabelAppeal** and **STARS** (0.33) and **LabelAppeak** and **TARGET** (0.36), as well as a moderate negative correation between **AcidIndex** and **Target** (-0.24). Other variables are largely uncorrelated. This suggests that higher STARS ratings and label appeal may be associated with higher Target sales, while.
-
-The correlation between features and TARGET indicates that these are likely to have some predictive value; the correlation between **LabelAppeal** and **STARS** means that use of both features in the model can lead to some prediction errors or some difficulty separating the effetcs of each feature; however, the correlation is not strong enough to warrant exclusion of either feature from the analysis. 
 
 ```{r}
-cor_matrix <- cor(train_df, use = "pairwise.complete.obs")
+# Remove rows with NA from train_df
+train_df_no_na <- train_df[complete.cases(train_df), ]
 
-# Create the correlation plot
-corrplot(cor_matrix, method = "circle", type = "upper", tl.cex = 0.8, tl.col = "black")
-```
-```{r, include=FALSE}
-cor(train_df$TARGET, train_df$STARS, use = "pairwise.complete.obs")
-cor(train_df$TARGET, train_df$LabelAppeal, use = "pairwise.complete.obs")
-cor(train_df$STARS, train_df$LabelAppeal, use = "pairwise.complete.obs")
-cor(train_df$TARGET, train_df$AcidIndex, use = "pairwise.complete.obs")
+# Calculate the correlation matrix
+M <- cor(train_df_no_na)
+
+# Plot the correlation matrix using corrplot
+corrplot(M, method = "number")
 ```
 
-In regression analysis, we typically use a p-value threshold of 0.05 to determine statistical significance. Therefore, independent variables with a p-value less than 0.05 can be considered statistically significant and are likely to have a significant impact on predicting wine quality. In this model, the variables **VolatileAcidity**, **FreeSulfurDioxide**, **LabelAppeal**, and **AcidIndex** all meet this criterion and can be considered relevant in predicting wine quality.
+The relationship between STARS and Target appears to be positive, suggesting that higher STARS ratings may be associated with higher Target sales.
+```{r}
+corr_matrix <- cor(train_df[c("STARS", "TARGET", "LabelAppeal")], use = "complete.obs")
+print(corr_matrix)
 
+# print result
+print(corr_matrix["TARGET", "STARS"])
+print(corr_matrix["TARGET", "LabelAppeal"])
+```
+
+When considering the distribution of **Volatile Acidity**, **Alcohol**, **Acid Index**, and **pH** across different STARS categories, it becomes evident that these variables show a relatively even distribution within each STARS group. Consequently, it appears impractical to assess the STARS rating solely based on these variables.
+```{r}
+p1 <- train_df %>% na.omit() %>% ggplot(aes(factor(STARS), AcidIndex)) + geom_boxplot()
+p2 <- train_df %>% na.omit() %>% ggplot(aes(factor(STARS), Alcohol)) + geom_boxplot()
+p3 <- train_df %>% na.omit() %>% ggplot(aes(factor(STARS), VolatileAcidity)) + geom_boxplot()
+p4 <- train_df %>% na.omit() %>% ggplot(aes(pH, FixedAcidity)) + geom_point(alpha=.1) + geom_smooth()
+grid.arrange(p1, p2, p3, p4, ncol=2) 
+```
+
+### Multicollinearity
+
+In regression analysis, we typically use a p-value threshold of 0.05 to determine statistical significance. Therefore, independent variables with a p-value less than 0.05 can be considered statistically significant and are likely to have a significant impact on predicting wine quality. In this model, the variables **VolatileAcidity**, **Alcohol**, **LabelAppeal**, and **AcidIndex** all meet this criterion and can be considered relevant in predicting wine quality.
+
+Based on these VIF values, it appears that there is no significant multicollinearity present in your model. All the VIF values are close to 1, suggesting that there is no strong linear relationship between the predictor variables.
 
 ```{r}
 lm_model <- lm(STARS ~ FixedAcidity + VolatileAcidity + CitricAcid + ResidualSugar + Chlorides + ResidualSugar + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + pH + Sulphates + Alcohol + LabelAppeal + AcidIndex, data = train_df)
 
 summary(lm_model)
+
+# Check for multicollinearity
+vif_values <- vif(lm_model)
+print(vif_values)
 ```
 
 ### Missing Values
 
-Roughly half of the rows have at least some missing values (6359/12795 rows) -- omitting rows with NAs may not be a viable strategy.
-We can test both imputing and omitting using cross-validation to see which approach gives superior results. Given that **STARS** is correlated with **LabelAppeal** (which has no missng values), it may be possible to add value to the model by imputing values for **STARS** based on **LabelAppeak**.
+Search for any missing values. Since the column STARS is an important values, it will be filled in in the data preparation step.
+
 ```{r}
 colSums(is.na(train_df))
-sum(!complete.cases(train_df))
 ```
 
-### Plot
+### Bar Plot
 
-Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET. We use a "jittered" scatter plot in addtion to transparent points in order to understand the spread of the data: Relative few wines achieve a 4-star rating, and all that do achieve at least some order. 2-star wines
+* Most wines have a quality score of 1 and 2.
+* If the score is 3 or 4, it can be judged as a good wine.
+```{r}
+theme_set(theme_minimal())
+ggplot(train_df,aes(STARS)) + geom_histogram(stat="count") +
+   xlab("STARS of wines") + ylab("Number of wines") + geom_bar(fill="pink")
+```
+
+Bar Plot of **STARS** and **TARGET**. As you can see, the higher the STARS, the higher the average TARGET.
 
 ```{r}
 TARGET_STARS_df <- train_df %>% 
@@ -133,7 +168,7 @@ TARGET_STARS_df
 ```{r}
 
 ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
-  geom_point(alpha = .1, position = "jitter") + 
+  geom_bar(data = TARGET_STARS_df, stat = "identity", alpha = .3) + 
     #ggrepel::geom_text_repel(aes(label = STARS), color = "black", size = 2.5, segment.color = "grey") +
       #geom_point() +
         guides(color = "none", fill = "none") +
@@ -147,40 +182,15 @@ ggplot(train_df, aes(x = STARS, y = TARGET, color = STARS, fill = STARS)) +
 
 ### Basic Plots
 
-A basic plot of all features shows that they are close to a normal distribution, although the **TARGET** is actually bimodal wiht a mode at 4 and at 0 cases of wine sold. 
+Everything looks pretty close to a normal distribution. Also, LabelAppeal, AcidIndex, and STARS are actually categorical variables.
 
-```{r, warning=FALSE}
-df_long <- reshape2::melt(train_df)
-ggplot2::ggplot(df_long) +
+```{r}
+datasub <- reshape2::melt(train_df)
+ggplot2::ggplot(datasub) +
   ggplot2::aes(x = value) + 
   ggplot2::geom_density(fill = "skyblue") + 
   ggplot2::facet_wrap(~variable, scales = 'free')
 
-```
-We can confirm by looking at a QQ plot.
-
-```{r, warning=FALSE}
-ggplot(df_long, aes(sample = value)) + 
-  stat_qq() +
-  facet_wrap(~variable)
-  ggtitle("QQ Plot of Data")
-```
-
-```{r}
-ggplot(df_long, aes(sample = value)) + 
-  geom_histogram() +
-  facet_wrap(~variable)
-  ggtitle("Histogram of Data")
-```
-
-
-```{r}
-#Well, since we have almost 13,000 observations, we have decided that we can simply remove the NAs from the data set. Except for the STARS variable. Since it takes factors, we will simply turn NA into a factor.
-
-#NA handling
-#train_df$STARS <- addNA(train_df$STARS)
-#train_df <- na.omit(train_df)
-#test_df$STARS <- addNA(test_df$STARS)
 ```
 
 ## 2. DATA PREPARATION
@@ -200,15 +210,21 @@ predicted_STARS <- predict(lm_model_STARS, newdata = missing_STARS)
 
 predicted_STARS_rounded <- round(predicted_STARS)
 
-imputed_df <- train_df
-
-imputed_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
+train_df$STARS[is.na(train_df$STARS)] <- predicted_STARS_rounded
 
 summary(lm_model_STARS)
 
+head(train_df)
 ```
 
+Delete all rows with NA values for more accurate future analysis.
+```{r}
+train_df <- train_df[complete.cases(train_df),]
+```
 ### Data Types
+
+* It has 16 variables and 12795 data.
+* All variables are continuous variables.
 
 Change the datatypes of a few variables. Convert specific columns to factors in separate data frames without altering the original data frames,
 
@@ -227,7 +243,6 @@ test_df_factors$LabelAppeal <- as.factor(test_df_factors$LabelAppeal)
 test_df_factors$AcidIndex <- as.factor(test_df_factors$AcidIndex)
 test_df_factors$STARS <- as.factor(test_df_factors$STARS)
 ```
-
 
 ### Box Cox
 
@@ -264,6 +279,170 @@ ggplot(data.frame(AcidIndex = transformed_AcidIndex), aes(x = AcidIndex)) +
   labs(title = "Histogram of Transformed AcidIndex", x = "Transformed AcidIndex", y = "Frequency")
 
 ```
+
+## 3. Model
+
+In order to analyze the data and make predictions, we proceeded by building both a Poisson model, binomial regression model, multiple leaner regression utilizing these models to explore the relationships and patterns within the dataset. Furthermore, to ensure accurate assessment and validation of our models, we split the training data into distinct subsets, allowing us to effectively evaluate their performance and generalization capabilities.
+
+
+```{r}
+set.seed(123)
+partition <- sample(1:nrow(train_df), size=nrow(train_df)*0.7,replace=FALSE)
+
+train.data <-train_df[partition, ]
+test.data <- train_df[-partition, ]
+
+target <- test.data$`TARGET`
+```
+
+### Model 1
+```{r}
+model1 <- glm(TARGET ~., data=train.data, family = poisson)
+summary(model1)
+```
+
+### Model 2
+```{r}
+model2<- glm(TARGET ~ VolatileAcidity + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS ,data=train.data, family = poisson)
+summary(model2)
+```
+
+### Model 3
+```{r}
+model3 <- glm(TARGET ~., data=train.data)
+summary(model3)
+```
+
+### Model 4
+```{r}
+model4 <- glm(TARGET~ VolatileAcidity + Chlorides + FreeSulfurDioxide + TotalSulfurDioxide + Density + Alcohol + LabelAppeal + AcidIndex + STARS , data=train.data)
+summary(model4)
+```
+
+### Model 5
+
+**Random Forest Model**. Correlation with STARS and Label Appear is the highest.
+```{r}
+set.seed(1810)
+
+data_rf <- randomForest(TARGET ~ ., data = train_df)
+
+data_rf
+
+opar <- par(mfrow=c(1,2))
+
+plot(data_rf)
+
+varImpPlot(data_rf)
+
+par(opar)
+
+dev.off() 
+```
+
+## 4. Model Selection
+
+The models can be compared effectively by examining their respective accuracy scores, which serve as a reliable metric for evaluating their performance in accurately predicting the desired outcome. By analyzing and contrasting the accuracy scores of the models, valuable insights can be gained to facilitate informed decision-making regarding the most appropriate model for the given analysis or task at hand. This comparative assessment of accuracy scores enables a comprehensive evaluation of the models' predictive capabilities, aiding in the selection of the optimal model for the desired objective.
+
+### Model 1
+
+```{r}
+predictions <- as.data.frame(predict(model1, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model1, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model1, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+
+```{r}
+print(avg_percentage_error)
+```
+
+
+### Model 2
+```{r}
+predictions <- as.data.frame(predict(model2, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model2, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model2, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+
+```{r}
+print(avg_percentage_error)
+```
+
+
+### Model 3
+```{r}
+predictions <- as.data.frame(predict(model3, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model3, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model3, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+```{r}
+print(avg_percentage_error)
+```
+
+### Model 4
+```{r}
+predictions <- as.data.frame(predict(model4, newdata = test.data))
+
+accuracy_df <- target
+
+accuracy_df <- merge(accuracy_df, predictions)
+accuracy_df$error <- abs(accuracy_df$x - accuracy_df$`predict(model4, newdata = test.data)`)
+accuracy_df$error_percentage <- ((accuracy_df$`predict(model4, newdata = test.data)` - accuracy_df$x)/accuracy_df$x) * 100
+avg_error <- mean(accuracy_df$error)
+avg_percentage_error <- mean(accuracy_df$error_percentage)
+print(avg_error)
+```
+
+```{r}
+print(avg_percentage_error)
+```
+The NaNs are due to the fact that some of the wines simply didn’t sell a case. So that would make a 0 in the denominator. Thus, it won’t work. We can still check the average rate however.
+
+
+### Model 5
+
+```{r}
+y_obs <- test.data$TARGET
+yhat_rf <- predict(data_rf, newdata = test.data)
+
+rmse_value <- rmse(y_obs, yhat_rf)
+rmse_value
+```
+### Predictions
+
+```{r}
+
+#predictions <- as.data.frame(predict(model1, newdata = test_df))
+#test_df$predictions <- predictions
+#results <- test_df[c("IN", "predictions")]
+```
+
+
+
+
+
+
 
 
 
