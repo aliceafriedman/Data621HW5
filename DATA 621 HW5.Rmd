@@ -322,11 +322,22 @@ R^2 increases sharply as the number of features is increased from 1 to 4, and th
 
 ### Model selection
 
-One rule of thumb is to choose the model with the fewest features where the BIC (or other selected metric) is within one SD of the mean. By this measure, the model with only 1 feature, **STARS** is the best one, while if we use adjusted R^2, which penalizes additional features less, the model wiht 3 features (**LableAppeal**, **AcidIndex**, and **STARS**) performs the best. In order to make a final choice, we should see which model performst the best in cross-validaiton.
+One rule of thumb is to choose the model with the fewest features where the BIC (or other selected metric) is within one SD of the mean. By this measure, the model with only 1 feature, **STARS** is the best one, while if we use adjusted R^2, which penalizes additional features less, the model with 3 features (**LableAppeal**, **AcidIndex**, and **STARS**) performs the best. In order to make a final choice, we should see which model performs the best in validaiton.
 
 ```{r}
-model_final <- lm(TARGET ~ LabelAppeal + AcidIndex + STARS, trainData)
-plot(model_final)
+M3 <- lm(TARGET ~ LabelAppeal + AcidIndex + STARS, trainData)
+plot(M3)
+predict_M3 <- predict(M3, testData)
+plot(round(predict_M3, 0), testData$TARGET)
+cor(predict_M3, testData$TARGET)
+
+
+M1 <- lm(TARGET ~ STARS, trainData)
+plot(M1)
+predict_M1 <- predict(M1, testData)
+plot(round(predict_M1, 0), testData$TARGET)
+cor(predict_M1, testData$TARGET)
+
 ```
 ##Conclusions
 Using our selected model, here are the predicted values. Based on the plots, the model does seem to fit the required assumptions for a linear regression.
